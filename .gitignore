@@ -1,0 +1,16 @@
+*.apk
+*.zip
+/temp
+/build
+test*
+/logs
+build.md
+patches-state.json
+patches-built.json
+failed-builds.txt
+cmpr
+*-temporary-files
+local-build-out/
+.DS_Store
+.claude/*
+!.claude/skills

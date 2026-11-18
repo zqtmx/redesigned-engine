@@ -1,0 +1,301 @@
+name: Build Modules
+on:
+  workflow_call:
+    inputs:
+      from_ci:
+        type: boolean
+        required: false
+        default: true
+      update_cfg:
+        description: "The apps to build, as the trimmed config JSON that the CI check job printed."
+        type: string
+        required: false
+        default: ""
+    outputs:
+      released:
+        description: "'true' when this run published a release, 'false' when every app was skipped."
+        value: ${{ jobs.run.outputs.released }}
+
+  workflow_dispatch:
+
+jobs:
+  run:
+    permissions: write-all
+    runs-on: ubuntu-latest
+    outputs:
+      released: ${{ steps.built.outputs.any }}
+    steps:
+      - uses: actions/setup-java@v5
+        with:
+          distribution: "zulu"
+          java-version: "21"
+
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          submodules: true
+
+      - name: Save notification script
+        run: cp .github/scripts/tg-notify.sh "$RUNNER_TEMP/tg-notify.sh"
+
+      - name: Update config
+        if: ${{ inputs.from_ci }}
+        env:
+          UPDATE_CFG: ${{ inputs.update_cfg }}
+        run: |
+          # The check job in ci.yml decided which apps to build. Use its answer. Do not ask the
+          # GitHub API again here: this job has no token for that lookup, the unauthenticated
+          # call gets HTTP 403, and each patch source then looks unchanged. The empty answer
+          # wrote no config.json, and the build step below fell back to the full config.toml.
+          if [ -z "$UPDATE_CFG" ]; then
+            echo "::error::CI started a build but sent no app list. Refusing to build the full config."
+            exit 1
+          fi
+          printf '%s\n' "$UPDATE_CFG" >config.json
+          cat config.json
+
+      - name: Get next version code
+        id: next_ver_code
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG=$(gh release list -L 1 | awk -F '\t' '{print $3}')
+          if [ -z "$TAG" ]; then TAG=0; fi
+          NEXT=$((TAG + 1))
+          # Releases in this repo are immutable, which reserves a tag name for good: a deleted
+          # release keeps its name, and publishing under it fails late, after the whole build,
+          # with 'tag_name was used by an immutable release'. The version code comes from the
+          # latest release, so one burned name wedges every later run on the same number.
+          # Claim the tag here instead. Creating the ref fails on a burned name, so step over
+          # it. 'gh release create' below then uses the tag that already exists.
+          for _ in $(seq 1 20); do
+            if gh api "repos/$GITHUB_REPOSITORY/git/refs" -X POST \
+              -f ref="refs/tags/$NEXT" -f sha="$GITHUB_SHA" >/dev/null 2>&1; then
+              break
+            fi
+            echo "tag $NEXT is taken or reserved; trying $((NEXT + 1))"
+            NEXT=$((NEXT + 1))
+          done
+          if ! gh api "repos/$GITHUB_REPOSITORY/git/refs/tags/$NEXT" >/dev/null 2>&1; then
+            echo "::error::Could not claim a release tag after 20 tries (last: $NEXT)."
+            exit 1
+          fi
+          echo "release tag: $NEXT"
+          echo "NEXT_VER_CODE=$NEXT" >> $GITHUB_OUTPUT
+
+      - name: Build modules/APKs
+        run: if [ -f "config.json" ]; then ./build.sh config.json; else ./build.sh config.toml; fi
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: $GITHUB_REPOSITORY
+          NEXT_VER_CODE: ${{ steps.next_ver_code.outputs.NEXT_VER_CODE }}
+
+      - name: Check for artifacts
+        id: built
+        run: |
+          # build.sh succeeds with an empty build/ when every selected app was skipped, for example
+          # an 'auto' app whose latest supported version no source serves yet. Publish nothing then.
+          if ls build/* >/dev/null 2>&1; then echo "any=true"; else echo "any=false"; fi >>"$GITHUB_OUTPUT"
+
+      - name: Release unused tag
+        if: ${{ steps.built.outputs.any == 'false' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.next_ver_code.outputs.NEXT_VER_CODE }}
+        run: |
+          # The tag was claimed before the build. It never became a release, so it is not burned:
+          # delete it, and the next run claims the same number.
+          gh api -X DELETE "repos/$GITHUB_REPOSITORY/git/refs/tags/$TAG" ||
+            echo "::warning::Could not delete the unused tag $TAG. The next run steps over it."
+
+      - name: Report per-app build failures
+        if: ${{ always() }}
+        env:
+          TG_TOKEN: ${{ secrets.TG_TOKEN }}
+          TG_CHAT: ${{ vars.TG_CHAT_ADMIN }}
+        run: |
+          [ -s failed-builds.txt ] || exit 0
+          {
+            echo "### ⚠️ Apps that failed to build"
+            echo ""
+            echo "| App | Reason |"
+            echo "| --- | --- |"
+            while IFS=$'\t' read -r t r; do echo "| \`${t}\` | ${r} |"; done <failed-builds.txt
+          } >> "$GITHUB_STEP_SUMMARY"
+          RUN_URL="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          LIST=$(while IFS=$'\t' read -r t r; do echo "• ${t} — ${r}"; done <failed-builds.txt)
+          bash "$RUNNER_TEMP/tg-notify.sh" "⚠️ *Some apps failed to build* ([run]($RUN_URL))
+          ${LIST}"
+
+      - name: Report per-app build warnings
+        if: ${{ always() }}
+        env:
+          TG_TOKEN: ${{ secrets.TG_TOKEN }}
+          TG_CHAT: ${{ vars.TG_CHAT_ADMIN }}
+        run: |
+          [ -s build-warnings.txt ] || exit 0
+          {
+            echo "### ⚠️ Apps with warnings"
+            echo ""
+            echo "| App | Warning |"
+            echo "| --- | --- |"
+            while IFS=$'\t' read -r t r; do echo "| \`${t}\` | ${r} |"; done <build-warnings.txt
+          } >> "$GITHUB_STEP_SUMMARY"
+          RUN_URL="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          LIST=$(while IFS=$'\t' read -r t r; do echo "• ${t} — ${r}"; done <build-warnings.txt)
+          bash "$RUNNER_TEMP/tg-notify.sh" "⚠️ *Some apps have a warning* ([run]($RUN_URL))
+          ${LIST}"
+
+      - name: Attest build provenance
+        if: ${{ steps.built.outputs.any == 'true' }}
+        uses: actions/attest-build-provenance@v4
+        with:
+          subject-path: "build/*"
+
+      - name: Get output
+        if: ${{ steps.built.outputs.any == 'true' }}
+        id: get_output
+        run: |
+          DELIM="$(openssl rand -hex 8)"
+          echo "BUILD_LOG<<${DELIM}" >> "$GITHUB_OUTPUT"
+          cat build.md >> "$GITHUB_OUTPUT"
+          echo "${DELIM}" >> "$GITHUB_OUTPUT"
+          cp -f build.md build.tmp
+      
+      - name: Upload release
+        if: ${{ steps.built.outputs.any == 'true' }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.next_ver_code.outputs.NEXT_VER_CODE }}
+          BODY: ${{ steps.get_output.outputs.BUILD_LOG }}
+        run: |
+          ls -lh ./build/*
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release edit "$TAG" --title "Release $TAG" --notes "$BODY" --draft
+            gh release upload "$TAG" ./build/* --clobber
+            gh release edit "$TAG" --draft=false
+          else
+            gh release create "$TAG" ./build/* --title "Release $TAG" --notes "$BODY" --draft
+            gh release edit "$TAG" --draft=false
+          fi
+
+      - name: Update modules changelog and update json
+        if: ${{ steps.built.outputs.any == 'true' }}
+        id: update_config
+        run: |
+          # Collect the *-update.json files that the module tables own, while config.toml and
+          # bin/ are still on the build branch. The list is written outside the repo, so that it
+          # survives the branch change below.
+          ./build.sh config.toml --list-update-jsons | sort -u >"$RUNNER_TEMP/expected-update-jsons.txt"
+
+          git checkout -f update || git switch --discard-changes --orphan update
+          cp -f build.tmp build.md
+
+          # Merge the patch versions built in this run into the state file. patches-built.json is
+          # untracked, so it survives the branch change. '+' replaces the entry of each rebuilt
+          # app and keeps the entries of apps built in earlier runs. build.md, in contrast, holds
+          # the apps of this run only.
+          [ -f patches-state.json ] || echo '{}' >patches-state.json # the file must exist, or the 'git add' below fails
+          if [ -f patches-built.json ]; then
+            jq -s '.[0] + .[1]' patches-state.json patches-built.json >patches-state.json.tmp
+            mv -f patches-state.json.tmp patches-state.json
+          fi
+
+          get_update_json() {
+            echo "{
+            \"version\": \"$1\",
+            \"versionCode\": ${{ steps.next_ver_code.outputs.NEXT_VER_CODE }},
+            \"zipUrl\": \"$2\",
+            \"changelog\": \"https://raw.githubusercontent.com/$GITHUB_REPOSITORY/update/build.md\"
+          }"
+          }
+
+          cd build || { echo "build folder not found"; exit 1; }
+          for OUTPUT in *module*.zip; do
+            [ "$OUTPUT" = "*module*.zip" ] && continue
+            ZIP_S=$(unzip -p "$OUTPUT" module.prop)
+            if ! UPDATE_JSON=$(echo "$ZIP_S" | grep updateJson); then continue; fi
+            UPDATE_JSON="${UPDATE_JSON##*/}"
+            VER=$(echo "$ZIP_S" | grep version=)
+            VER="${VER##*=}"
+            DLURL="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/download/${{ steps.next_ver_code.outputs.NEXT_VER_CODE }}/${OUTPUT}"
+            get_update_json "$VER" "$DLURL" >"../$UPDATE_JSON"
+          done
+          cd ..
+
+          # Delete orphan update jsons, left by a renamed table or by an app that changed to
+          # apk-only. The allowed list comes from the config, not from the apps built in this
+          # run, so a module that did not build in this run keeps its json. If the list is empty,
+          # build.sh failed. Skip the deletion then, so that an error cannot erase the branch.
+          if [ -s "$RUNNER_TEMP/expected-update-jsons.txt" ]; then
+            for j in *-update.json; do
+              [ "$j" = "*-update.json" ] && continue
+              grep -qxF "$j" "$RUNNER_TEMP/expected-update-jsons.txt" || git rm -f "$j"
+            done
+          fi
+
+          find . -name "*-update.json" | grep . || : >dummy-update.json
+
+      - name: Commit module json changes
+        if: ${{ steps.built.outputs.any == 'true' }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+      
+          git add build.md *-update.json patches-state.json
+      
+          if ! git diff --cached --quiet; then
+            git commit -m "Bump version ${{ steps.next_ver_code.outputs.NEXT_VER_CODE }}"
+            git push origin HEAD:update
+          else
+            echo "no changes!"
+          fi
+
+      - name: Report to Telegram
+        env:
+          TG_TOKEN: ${{ secrets.TG_TOKEN }}
+          TG_CHAT: ${{ vars.TG_CHAT }}
+        if: ${{ steps.built.outputs.any == 'true' && env.TG_TOKEN != '' && env.TG_CHAT != '' }}
+        run: |
+          cd build || { echo "build folder not found"; exit 1; }
+
+          NL=$'\n'
+          APKS=""
+          MODULES=""
+          for OUTPUT in *; do
+            DL_URL="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/download/${{ steps.next_ver_code.outputs.NEXT_VER_CODE }}/${OUTPUT}"
+            if [[ $OUTPUT = *.apk ]]; then
+              APKS+="${NL}📦[${OUTPUT}](${DL_URL})"
+            elif [[ $OUTPUT = *.zip ]]; then
+              MODULES+="${NL}📦[${OUTPUT}](${DL_URL})"
+            fi
+          done
+          if [ -n "$MODULES" ]; then
+            MODULES="Modules:${NL}${MODULES#"$NL"}"
+            if [ -n "$APKS" ]; then MODULES+=${NL}${NL}; fi
+          fi
+          if [ -n "$APKS" ]; then APKS="APKs:${NL}${APKS#"$NL"}"; fi
+
+          BODY="$(sed 's/^\* \*\*/↪ \*\*/g; s/^\* `/↪ \*\*/g; s/`/\*/g; s/^\* /\↪/g; s/\*\*/\*/g; s/###//g; s/^- /↪ /g; /^==/d;' ../build.md)"
+          MSG="🚀 *New Patched Apps build — Release ${{ steps.next_ver_code.outputs.NEXT_VER_CODE }}!*
+
+          ${BODY}
+
+          *▼ Download Links:*
+          ${MODULES}${APKS}
+
+          —
+          📢 [@andrewspatchedapps](https://t.me/andrewspatchedapps)
+          "
+          echo "'$MSG'"
+          bash "$RUNNER_TEMP/tg-notify.sh" "$MSG"
+
+      - name: Report failure to Telegram
+        if: ${{ failure() && !inputs.from_ci }}
+        env:
+          TG_TOKEN: ${{ secrets.TG_TOKEN }}
+          TG_CHAT: ${{ vars.TG_CHAT_ADMIN }}
+        run: |
+          RUN_URL="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          bash "$RUNNER_TEMP/tg-notify.sh" "❌ *Build failed* ([run]($RUN_URL))"

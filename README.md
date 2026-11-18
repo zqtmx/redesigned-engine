@@ -1,0 +1,110 @@
+# Patched Apps
+
+[![Telegram](https://img.shields.io/badge/Telegram-2CA5E0?style=for-the-badge&logo=telegram&logoColor=white)](https://t.me/andrewspatchedapps)
+[![CI](https://github.com/andrewliang25/patched-apps/actions/workflows/ci.yml/badge.svg?event=schedule)](https://github.com/andrewliang25/patched-apps/actions/workflows/ci.yml)
+
+A personal builder for Morphe patches. It makes non-root APKs and Magisk/KernelSU modules, and CI updates them daily. It is built on [**j-hc/revanced-magisk-module**](https://github.com/j-hc/revanced-magisk-module).
+
+**Get the [latest release](https://github.com/andrewliang25/patched-apps/releases).**
+
+Every APK and module in a release carries a [GitHub build provenance attestation](https://docs.github.com/actions/security-guides/using-artifact-attestations-to-establish-provenance-for-builds). To make sure that CI of this repo built a file, run:
+
+```
+gh attestation verify <file> --repo andrewliang25/patched-apps
+```
+
+Contributors: [sign your commits](CONTRIBUTING.md#signing-your-commits) so that they show as **Verified**.
+
+## Apps
+
+| App | Patches | Main features | non-root APK | module | Notes |
+| --- | --- | --- | :-: | :-: | --- |
+| <div align="center"><img src="assets/icons/youtube.svg" width="28"><br><b>YouTube</b></div> | Morphe | No video ads, SponsorBlock, background playback, Return YouTube Dislike, custom themes | ✅ | ✅ | The APK is renamed and needs MicroG-RE |
+| <div align="center"><img src="assets/icons/ytmusic.svg" width="28"><br><b>YT Music</b></div> | Morphe | No ads, background playback, exclusive-audio mode, minimized playback | ✅ | ✅ | arm64-v8a. The APK is renamed and needs MicroG-RE |
+| <div align="center"><img src="assets/icons/googlephotos.svg" width="28"><br><b>Google Photos</b></div> | Rushi | Unlimited backup at original quality, no device or account model lock, backup control for each DCIM folder, correct grouping of non-Camera DCIM folders | ✅ | ✅ | The APK is renamed to `app.morphe.android.apps.photos`, is labelled **Photos Morphe**, and needs MicroG-RE |
+| <div align="center"><img src="assets/icons/instagram.svg" width="28"><br><b>Instagram</b></div> | Piko | Block ads and sponsored posts, download photos, videos and reels, hide story "seen", turn off typing and read receipts | ✅ | ✅ | arm64-v8a. The APK is renamed to `app.piko.instagram.android`. **Experimental**, see [Instagram module](#instagram-module) |
+| <div align="center"><img src="assets/icons/facebook.svg" width="28"><br><b>Facebook</b></div> | Andrew | Hide sponsored posts, reels and stories, hide suggested and promoted posts, block background ad prefetch and ad telemetry, turn off Audience Network | ✅ | ✅ | arm64-v8a. The stock APK is self-hosted on archive.org, and the bundle supports one build only. It is not renamed, so the non-root APK **replaces** the official app. Uninstall that app first. **Experimental** |
+| <div align="center"><img src="assets/icons/threads.svg" width="28"><br><b>Threads</b></div> | Chiggi | Hide ads, remove the AD_ID (advertising ID) permission | ✅ | ✅ | arm64-v8a. The APK is renamed to `app.chiggi.instagram.barcelona`. **Experimental**, see the [permission conflict](#meta-app-clones-duplicate-permission-conflict) |
+| <div align="center"><img src="assets/icons/reddit.svg" width="28"><br><b>Reddit</b></div> | Morphe | Block ads, clean share links, hide recommendations and premium prompts, custom branding | ✅ | ✅ | The APK is renamed to `app.morphe.reddit.frontpage` |
+| <div align="center"><img src="assets/icons/twitter.svg" width="28"><br><b>Twitter / X</b></div> | Piko | Hide ads and promoted tweets, download media, restore the chronological timeline, hide view counts | ✅ | ✅ | Not cloned. The APK and the module both use `com.twitter.android`. Uninstall the app that has this package before you install one of them |
+| <div align="center"><img src="assets/icons/telegram.svg" width="28"><br><b>Telegram</b></div> | Rushi | Remove ads, unlock Premium, keep deleted and disappearing messages, save restricted media, hide the typing indicator, faster downloads | ✅ | ✅ | arm64-v8a. It targets the Play Store build `org.telegram.messenger`. The stock APK is self-hosted on archive.org and follows the build that the bundle targets. It is not renamed, so the non-root APK **replaces** the official app. Uninstall that app first. The APK also needs MicroG-RE |
+| <div align="center"><img src="assets/icons/line.svg" width="28"><br><b>LINE</b></div> | Andrew | Hide ads and banners, remove the VOOM, Wallet and LINE TODAY tabs, hide Home modules, keep chats unread (no read receipts), open links outside the app | ✅ | ✅ | arm64-v8a. The stock APK is self-hosted on archive.org. It is not renamed and shares `jp.naver.line.android` with the Play Store build. Uninstall the official app before you install the non-root APK. Location maps and chat backup sign-in in the APK need MicroG-RE |
+
+Each app is one config entry, and it makes two output types:
+
+* **non-root APK** — install it without root. Most APKs get a new package name, either an `app.<patch>.<pkg>` clone or the MicroG-RE variant for Google apps. Thus they install beside the official app instead of replacing it.
+* **module** — a Magisk/KernelSU module that mounts the patched APK over the stock app. It keeps the original package, so it needs root and the stock app.
+
+> **Experimental:** Instagram and Facebook use pairip integrity protection. Their patched builds can fail to run on some devices.
+
+## Installation
+
+* The non-root YouTube, YT Music, Google Photos and Telegram APKs need [MicroG-RE](https://github.com/MorpheApp/MicroG-RE/releases). The non-root LINE APK needs it for location maps and chat backup sign-in only.
+* For every KernelSU/Magisk module, add the target app to the Zygisk **DenyList**, or the mount does not apply. Then use [**zygisk-detach**](https://github.com/j-hc/zygisk-detach) to detach the app from the Play Store, so that the Play Store cannot update it.
+
+### Meta app clones: duplicate permission conflict
+
+`INSTALL_FAILED_DUPLICATE_PERMISSION` occurs when an app declares a custom `<permission>` whose name an installed app already owns, and the two apps have **different signing certificates**. Apps that share permission names and have the **same** signing key install together.
+
+Meta apps declare shared family permissions, for example `com.facebook.permission.prod.FB_APP_COMMUNICATION`. The rename patch keeps those permission **names**. Thus the conflict is between a clone and the official Meta app that owns the name.
+
+This applies to **Threads** alone. The clone `app.chiggi.instagram.barcelona` declares the permission names of Threads under the certificate of this repo. Thus it conflicts with the official Threads app.
+
+There are two workarounds. Uninstall the official Threads app first, or use the root **module**, which keeps the original package and needs no permission rename.
+
+### Instagram module
+
+Instagram ships a module again from Piko 3.11.0. Earlier Piko builds could not open the Piko settings screen on a module ([crimera/piko#882](https://github.com/crimera/piko/issues/882)). Piko 3.11.0 opens it inside the activities of Instagram ([crimera/piko#2169](https://github.com/crimera/piko/pull/2169)), so the module needs no manifest change.
+
+A module cannot change the manifest of the app. Thus two parts of Piko do not apply to the module:
+
+* **Change version code.** The Play Store can update Instagram. Then the module stops mounting until it is updated. Detach Instagram from the Play Store, see [Installation](#installation).
+* **Disable telemetry.** The analytics services stay enabled in the manifest. The code part of the patch still applies.
+
+## Local builds
+
+### On Termux
+```console
+bash <(curl -sSf https://raw.githubusercontent.com/andrewliang25/patched-apps/main/build-termux.sh)
+```
+
+### On Linux
+```console
+$ git clone https://github.com/andrewliang25/patched-apps --depth 1
+$ cd patched-apps
+$ ./build.sh
+```
+
+## Changes to the build
+
+* Edit [`config.toml`](./config.toml) to include or exclude patches, and to add or remove apps. You can also make a config with [rvmm-config-gen](https://j-hc.github.io/rvmm-config-gen/).
+* Read [`CONFIG.md`](./CONFIG.md) for all options.
+* Start the [Build workflow](../../actions/workflows/build.yml), or wait for the daily CI run. Then get the outputs from the [releases](../../releases).
+
+Twitter and Instagram use [Piko](https://github.com/crimera/piko). Threads uses [Chiggi](https://github.com/durgesh0505/chiggi_morphe_patches). Telegram and Google Photos use [the morphe-patches of rushiranpise](https://github.com/rushiranpise/morphe-patches), and Facebook and LINE use [the morphe-patches of Andrew](https://github.com/andrewliang25/morphe-patches). The [Morphe CLI](https://github.com/MorpheApp/morphe-cli) drives all of them. Each stock APK is verified against the official signing certificate of the app, which `sig.txt` holds.
+
+### Config notes
+
+The config holds short notes only. The settings that follow need more explanation:
+
+* **`clone = true`** (Threads, Photos, Reddit, Instagram) — with `build-mode = "both"`, the non-root APK gets the package name `app.<patch>.<pkg>` and installs beside the official app. The module keeps the original package, so that it can mount over stock. One table needs a note. Photos is cloned, but its patch sets the name, so the clone is `app.morphe.android.apps.photos` and not `app.rushi.*`. Twitter ships both outputs and is not cloned, because the `Clone` patch of Piko does not cover `com.twitter.android`.
+* **Self-hosted stock APKs (archive.org)** — every app has a mirror on a self-hosted archive.org item, and the build tries that mirror before apkmirror. Facebook, Twitter, Instagram, Threads, Telegram and LINE need the mirror, because the public sources do not serve their builds. If a source cannot serve the wanted build, the build tries the next source of the app.
+* **`enable-module-update`** — set it to `false` to stop in-app updates of the modules.
+
+### CI notifications
+
+CI posts to two Telegram destinations with the bot secret `TG_TOKEN`. Release announcements go to the public channel that the repo variable `TG_CHAT` sets. The daily status message (built, skipped or failed) and the build-failure alerts go to a private admin chat that the repo variable **`TG_CHAT_ADMIN`** sets. [`.github/scripts/tg-notify.sh`](./.github/scripts/tg-notify.sh) holds the shared send logic. If a destination variable is empty, the script skips that notification.
+
+To get the numeric id for `TG_CHAT_ADMIN`, do these steps:
+
+1. Add the bot to the private channel as an admin.
+2. Post a message in the channel.
+3. Read `chat.id` from `https://api.telegram.org/bot<TG_TOKEN>/getUpdates`.
+
+## Disclaimer
+
+These builds come **as-is, with no warranty**, for personal and educational use. The apps are modified, that is patched and re-signed, and they are **not** official releases. You install and run them **at your own risk**. They can break, fail to update, behave in an unexpected way, or go against the terms of service of the original app. Some apps, for example apps with integrity protection, can fail to run. You are responsible for the applicable laws and for the terms of each app. The maintainer is not liable for damage, data loss, account action, or other results of their use.
+
+## Credits
+
+This project is a fork of [j-hc/revanced-magisk-module](https://github.com/j-hc/revanced-magisk-module). All credit for the builder, the module template and the helper tooling goes to [j-hc](https://github.com/j-hc). The patches come from [ReVanced](https://github.com/ReVanced), [Morphe](https://github.com/MorpheApp), [Piko (crimera)](https://github.com/crimera/piko), [Chiggi (durgesh0505)](https://github.com/durgesh0505/chiggi_morphe_patches) and [the morphe-patches of rushiranpise](https://github.com/rushiranpise/morphe-patches).

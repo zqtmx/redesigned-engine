@@ -1,0 +1,98 @@
+name: CI
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 16 * * *"
+
+jobs:
+  check:
+    permissions: write-all
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-java@v5
+        with:
+          distribution: "zulu"
+          java-version: "21"
+
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Should build?
+        id: should_build
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # A missing patches-state.json is not an error. config_update writes an empty state,
+          # which makes every enabled app look new, and thus prints the full config. That is
+          # what the first build wants.
+          git checkout origin/update patches-state.json || echo "first time building!"
+          # This step holds GITHUB_TOKEN, so the patch bundle lookups are authenticated. The
+          # build job must not ask again: an unauthenticated call gets HTTP 403, each source
+          # then looks unchanged, and the empty answer used to start a full rebuild.
+          UPDATE_CFG=$(./build.sh config.toml --config-update)
+          if [ "$UPDATE_CFG" ]; then
+            echo "'$UPDATE_CFG'"
+            echo "SHOULD_BUILD=1" >>"$GITHUB_OUTPUT"
+            DELIM="$(openssl rand -hex 8)"
+            {
+              echo "UPDATE_CFG<<${DELIM}"
+              echo "$UPDATE_CFG"
+              echo "${DELIM}"
+            } >>"$GITHUB_OUTPUT"
+          else
+            echo "SHOULD_BUILD=0" >>"$GITHUB_OUTPUT"
+          fi
+
+      - name: Clear older runs
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh run list -L400 --json databaseId -q '.[].databaseId' | tail -n+10 | xargs -IID gh api "repos/$GITHUB_REPOSITORY/actions/runs/ID" -X DELETE || :
+
+    outputs:
+      SHOULD_BUILD: ${{ steps.should_build.outputs.SHOULD_BUILD }}
+      UPDATE_CFG: ${{ steps.should_build.outputs.UPDATE_CFG }}
+
+  build:
+    permissions: write-all
+    needs: check
+    uses: ./.github/workflows/build.yml
+    if: ${{ needs.check.outputs.SHOULD_BUILD == 1 }}
+    secrets: inherit
+    with:
+      update_cfg: ${{ needs.check.outputs.UPDATE_CFG }}
+
+  notify:
+    needs: [check, build]
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Daily status to Telegram
+        env:
+          TG_TOKEN: ${{ secrets.TG_TOKEN }}
+          TG_CHAT: ${{ vars.TG_CHAT_ADMIN }}
+        run: |
+          RUN_URL="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          CHECK="${{ needs.check.result }}"
+          BUILD="${{ needs.build.result }}"
+          SB="${{ needs.check.outputs.SHOULD_BUILD }}"
+          if [ "$CHECK" = "failure" ]; then
+            MSG="❌ *Daily CI check failed* ([run]($RUN_URL))"
+          elif [ "$SB" != "1" ]; then
+            MSG="✅ *Daily check* — no new patches, build skipped. ([run]($RUN_URL))"
+          elif [ "$BUILD" = "success" ] && [ "${{ needs.build.outputs.released }}" != "true" ]; then
+            MSG="⚠️ *Daily build* — nothing released; every app was skipped (see warnings). ([run]($RUN_URL))"
+          elif [ "$BUILD" = "success" ]; then
+            MSG="✅ *Daily build succeeded* — release posted to the channel. ([run]($RUN_URL))"
+          elif [ "$BUILD" = "failure" ]; then
+            MSG="❌ *Daily build failed* ([run]($RUN_URL))"
+          else
+            MSG="⚠️ *Daily build did not complete* (\`$BUILD\`) ([run]($RUN_URL))"
+          fi
+          bash .github/scripts/tg-notify.sh "$MSG"

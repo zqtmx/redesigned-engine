@@ -1,0 +1,152 @@
+enable-module-update = true
+parallel-jobs = 1
+
+[YouTube-Morphe]
+app-name = "YouTube"
+patches-source = "MorpheApp/morphe-patches"
+cli-source = "MorpheApp/morphe-cli"
+rv-brand = "Morphe"
+build-mode = "both"
+include-stock = "auto"
+apkmirror-dlurl = "https://www.apkmirror.com/apk/google-inc/youtube"
+archive-dlurl = "https://archive.org/download/andrews-apks/apks/com.google.android.youtube"
+# The icon must differ from Music: both apps share one icon set in the bundle, and
+# 'Automatic' resolves to 'black' for each. The -O must precede an -e of the same -p group
+# or morphe-cli drops it silently, hence the explicit -e of the (already default-on) patch.
+patcher-args = "-O appIcon=play_black -e 'Custom branding'"
+
+[Music-Morphe]
+app-name = "Music"
+patches-source = "MorpheApp/morphe-patches"
+cli-source = "MorpheApp/morphe-cli"
+rv-brand = "Morphe"
+build-mode = "both"
+include-stock = "auto"
+arch = "arm64-v8a"
+apkmirror-dlurl = "https://www.apkmirror.com/apk/google-inc/youtube-music"
+archive-dlurl = "https://archive.org/download/andrews-apks/apks/com.google.android.apps.youtube.music"
+# Keeps the current icon ('Automatic' already resolves to 'black'), stated so that the
+# choice survives a change of the patch default. See the note in [YouTube-Morphe].
+patcher-args = "-O appIcon=black -e 'Custom branding'"
+
+[Reddit-Morphe]
+app-name = "Reddit"
+patches-source = "MorpheApp/morphe-patches"
+cli-source = "MorpheApp/morphe-cli"
+rv-brand = "Morphe"
+build-mode = "both"
+include-stock = "auto"
+clone = true
+apkmirror-dlurl = "https://www.apkmirror.com/apk/redditinc/reddit/"
+archive-dlurl = "https://archive.org/download/andrews-apks/apks/com.reddit.frontpage"
+dpi = "120-640dpi"
+
+[Facebook-Andrew]
+app-name = "Facebook"
+patches-source = "andrewliang25/morphe-patches"
+cli-source = "MorpheApp/morphe-cli"
+rv-brand = "Andrew"
+build-mode = "both"
+include-stock = "auto"
+version = "auto"
+arch = "arm64-v8a"
+# There is no 'clone', because the bundle has no rename patch for katana. Thus the non-root apk
+# keeps com.facebook.katana and replaces the official app.
+# The module mounts over the stock app, which keeps its genuine signature, so it does not
+# need the re-signed-build fix.
+module-excluded-patches = "'[Fix] Restore screens on re-signed builds'"
+archive-dlurl = "https://archive.org/download/andrews-apks/apks/com.facebook.katana"
+
+[Threads-Chiggi]
+app-name = "Threads"
+patches-source = "durgesh0505/chiggi_morphe_patches"
+cli-source = "MorpheApp/morphe-cli"
+rv-brand = "Chiggi"
+build-mode = "both"
+include-stock = "auto"
+clone = true
+version = "auto"
+arch = "arm64-v8a"
+# Both rename patches are on by default here. 'Change package name' must stay out of
+# excluded-patches, because it collides with the apk-mode -e of clone. Thus the module
+# turns it off separately.
+excluded-patches = "'Change app name'"
+module-excluded-patches = "'Change package name'"
+archive-dlurl = "https://archive.org/download/andrews-apks/apks/com.instagram.barcelona"
+apkmirror-dlurl = "https://www.apkmirror.com/apk/meta-platforms-inc/threads-instagram/"
+
+[Photos-Rushi]
+app-name = "Photos"
+patches-source = "rushiranpise/morphe-patches"
+cli-source = "MorpheApp/morphe-cli"
+rv-brand = "Rushi"
+build-mode = "both"
+include-stock = "auto"
+clone = true
+# This bundle enables 'Change package name' by default, unlike De-Vanced. build_rv only enables a
+# clone patch in apk mode; it never disables one, so the module would ship a renamed package and
+# could not mount over the stock app. Turn it off for the module.
+module-excluded-patches = "'Change package name'"
+apkmirror-dlurl = "https://www.apkmirror.com/apk/google-inc/photos/"
+archive-dlurl = "https://archive.org/download/andrews-apks/apks/com.google.android.apps.photos"
+
+["Twitter/X-Piko"]
+app-name = "Twitter"
+patches-source = "crimera/piko"
+cli-source = "MorpheApp/morphe-cli"
+rv-brand = "Piko"
+build-mode = "both"
+include-stock = "auto"
+version = "auto"
+apkmirror-dlurl = "https://www.apkmirror.com/apk/x-corp/twitter/"
+archive-dlurl = "https://archive.org/download/andrews-apks/apks/com.twitter.android"
+
+[Instagram-Piko]
+app-name = "Instagram"
+patches-source = "crimera/piko"
+cli-source = "MorpheApp/morphe-cli"
+rv-brand = "Piko"
+build-mode = "both"
+include-stock = "auto"
+clone = true
+version = "auto"
+arch = "arm64-v8a"
+# The ghost-mode patches. InboxActionBarBuilderFingerprint broke in Piko 3.8.0 and stops the
+# run. Exclude only these patches, and not with --continue-on-error, so that other broken
+# patches still fail loudly.
+excluded-patches = "'Disable typing status' 'View DMs anonymously' 'View live anonymously' 'View stories anonymously'"
+archive-dlurl = "https://archive.org/download/andrews-apks/apks/com.instagram.android"
+apkmirror-dlurl = "https://www.apkmirror.com/apk/instagram/instagram-instagram/"
+
+[Telegram-Rushi]
+app-name = "Telegram"
+patches-source = "rushiranpise/morphe-patches"
+cli-source = "MorpheApp/morphe-cli"
+rv-brand = "Rushi"
+build-mode = "both"
+# The Play Store package. There is no 'clone', because the bundle has no rename patch for it.
+# Thus the non-root apk replaces the official install instead of installing beside it.
+include-stock = "auto"
+arch = "arm64-v8a"
+dpi = "480dpi"
+archive-dlurl = "https://archive.org/download/andrews-apks/apks/org.telegram.messenger"
+apkmirror-dlurl = "https://www.apkmirror.com/apk/telegram-fz-llc/telegram/"
+
+[LINE-Andrew]
+app-name = "LINE"
+patches-source = "andrewliang25/morphe-patches"
+cli-source = "MorpheApp/morphe-cli"
+rv-brand = "Andrew"
+build-mode = "both"
+# archive hosts an arm64-only apkm, because apkmirror returns 403 for the split bundle of LINE.
+# There is no 'clone', because the bundle has no rename patch and LINE depends on its package.
+version = "auto"
+arch = "arm64-v8a"
+# This keeps the original split signature of LINE, which its server-side integrity checks need.
+include-stock = "auto"
+# The [Fix] patches are default-on and only a re-signed apk needs them. The module mounts over
+# the stock app, which keeps its genuine signature, so it excludes them. The two MicroG-RE
+# [Fix] patches need no entry here: build_rv turns every GmsCore/MicroG patch off in module mode.
+module-excluded-patches = "'[Fix] Restore push notifications' '[Fix] Restore biometric login'"
+archive-dlurl = "https://archive.org/download/andrews-apks/apks/jp.naver.line.android"
+apkmirror-dlurl = "https://www.apkmirror.com/apk/line-corporation/line"
