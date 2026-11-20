@@ -1,0 +1,6 @@
+{
+  "version": "v12.10.1 (patches 1.23.1.mpp)",
+  "versionCode": 1,
+  "zipUrl": "https://github.com/zqtmx/redesigned-engine/releases/download/1/telegram-rushi-module-v12.10.1-arm64-v8a.zip",
+  "changelog": "https://raw.githubusercontent.com/zqtmx/redesigned-engine/update/build.md"
+}
