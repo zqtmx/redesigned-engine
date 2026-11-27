@@ -9,13 +9,13 @@
     "andrewliang25/morphe-patches": "patches-4.1.0.mpp"
   },
   "Music-Morphe": {
-    "MorpheApp/morphe-patches": "patches-2.3.0.mpp"
+    "MorpheApp/morphe-patches": "patches-2.4.0.mpp"
   },
   "Photos-Rushi": {
     "rushiranpise/morphe-patches": "patches-1.23.1.mpp"
   },
   "Reddit-Morphe": {
-    "MorpheApp/morphe-patches": "patches-2.3.0.mpp"
+    "MorpheApp/morphe-patches": "patches-2.4.0.mpp"
   },
   "Telegram-Rushi": {
     "rushiranpise/morphe-patches": "patches-1.23.1.mpp"
@@ -27,6 +27,6 @@
     "crimera/piko": "patches-3.11.1.mpp"
   },
   "YouTube-Morphe": {
-    "MorpheApp/morphe-patches": "patches-2.3.0.mpp"
+    "MorpheApp/morphe-patches": "patches-2.4.0.mpp"
   }
 }
